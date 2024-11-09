@@ -71,7 +71,8 @@ func (s *Server) addClient(c *ws.Conn) {
 }
 
 func (s *Server) removeClient(c *Client) {
-	close(c.MsgCh)
+	//close(c.MsgCh)
+	fmt.Println("Client Disconnected")
 	c.Conn.Close()
 	s.ClientsMu.Lock()
 	defer s.ClientsMu.Unlock()
@@ -128,6 +129,7 @@ func (s *Server) readLoop(c *Client) {
 				Session:      &Session{},
 				Timer:        &Timer{},
 				IncomingMsgs: make(chan *ClientPacket, 100),
+				Host:         c.Id,
 			}
 			//add room to Servers rooms
 			s.RoomMu.Lock()
@@ -142,6 +144,10 @@ func (s *Server) readLoop(c *Client) {
 
 			//add id to client
 			c.Id = clientPacket.Header.UserId
+
+			//make client host of the new room
+			newRoom.Host = c.Id
+			c.IsHost = true
 
 			//add room id to packet
 			clientPacket.Header.RoomId = newRoom.Id

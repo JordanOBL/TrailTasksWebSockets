@@ -21,6 +21,7 @@ type Room struct {
 	Session      *Session
 	IncomingMsgs chan *ClientPacket
 	Timer        *Timer
+	Host         string
 }
 
 func (r *Room) handleRoomMessages() {
@@ -73,7 +74,8 @@ func (r *Room) responseFactory(protocol string, hiker *Client) error {
 	case "create":
 		directMessage := map[string]interface{}{
 			"status":  "success",
-			"message": "room created",
+			"message": "",
+			"hikers":  r.Hikers,
 		}
 		packet, err := r.packMessage("create", directMessage, hiker)
 		if err != nil {
@@ -95,7 +97,7 @@ func (r *Room) responseFactory(protocol string, hiker *Client) error {
 		directMessage := map[string]interface{}{
 			"type":    "direct",
 			"status":  "success",
-			"message": "joined room",
+			"message": "",
 			"hikers":  hikersSnapshot,
 		}
 		packet, err := r.packMessage("join", directMessage, hiker)
@@ -141,7 +143,7 @@ func (r *Room) responseFactory(protocol string, hiker *Client) error {
 		directMessage := map[string]interface{}{
 			"type":    "direct",
 			"status":  "success",
-			"message": "ready status updated",
+			"message": "",
 			"hikers":  hikersSnapshot,
 		}
 		packet, err := r.packMessage("ready", directMessage, hiker)
@@ -152,7 +154,7 @@ func (r *Room) responseFactory(protocol string, hiker *Client) error {
 
 		broadcastMessage := map[string]interface{}{
 			"type":    "broadcast",
-			"message": hiker.Username + " is ready",
+			"message": "",
 			"hikers":  hikersSnapshot,
 		}
 		r.broadcastExcept("ready", broadcastMessage, hiker)

@@ -9,6 +9,7 @@ import (
 type Client struct {
 	Conn            *ws.Conn          `json:"-"`
 	Id              string            `json:"id"`
+	IsHost          bool              `json:"isHost"`
 	Username        string            `json:"username"`
 	Distance        float64           `json:"distance"`
 	IsReady         bool              `json:"isReady"`
