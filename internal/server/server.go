@@ -124,10 +124,17 @@ func (s *Server) readLoop(c *Client) {
 		case "create":
 			//create a new room
 			newRoom := &Room{
-				Id:           uuid.New().String(),
-				Hikers:       make(map[string]*Client, 1024),
-				Session:      &Session{},
-				Timer:        &Timer{},
+				Id:      uuid.New().String(),
+				Hikers:  make(map[string]*Client, 1024),
+				Session: &Session{Level: 1, highestLevel: 1},
+				Timer: &Timer{
+					FocusTime:      1500,
+					ShortBreakTime: 300,
+					LongBreakTime:  900,
+					Sets:           3,
+					CompletedSets:  0,
+					Pace:           2.0,
+				},
 				IncomingMsgs: make(chan *ClientPacket, 100),
 				Host:         c.Id,
 			}

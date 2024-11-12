@@ -13,8 +13,10 @@ type Client struct {
 	Username        string            `json:"username"`
 	Distance        float64           `json:"distance"`
 	IsReady         bool              `json:"isReady"`
+	IsPaused        bool              `json:"isPaused"`
+	Strikes         uint8             `json:"strikes"`
 	MsgCh           chan ServerPacket `json:"-"`
-	droppedMessages int               `json:"-"`
+	droppedMessages uint8             `json:"-"`
 }
 
 type ClientPacket struct {
