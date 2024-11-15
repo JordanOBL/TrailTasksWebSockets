@@ -2,21 +2,18 @@ package server
 
 import (
 	"fmt"
-	"strconv"
 	"sync"
 	"time"
 )
 
 type Timer struct {
-	TimerMux       sync.RWMutex
+	TimerMux       sync.RWMutex  `json:"-"`
 	StartTime      string        `json:"startTime"`
 	StartTimestamp time.Time     `json:"-"`        // Store the actual start time
 	Duration       time.Duration `json:"duration"` // Duration of the current phase (focus or break)
 	IsCompleted    bool          `json:"isCompleted"`
-	Time           uint16        `json:"time"`
 	IsRunning      bool          `json:"isRunning"`
 	IsBreak        bool          `json:"isBreak"`
-	IsPaused       bool          `json:"isPaused"`
 	FocusTime      uint16        `json:"focusTime"`
 	ShortBreakTime uint16        `json:"shortBreakTime"`
 	LongBreakTime  uint16        `json:"longBreakTime"`
@@ -30,25 +27,25 @@ type Timer struct {
 
 func (t *Timer) BeginFocusTime(r *Room) {
 	t.TimerMux.Lock()
-	defer t.TimerMux.Unlock()
+	t.StartTimestamp = time.Now()
 	//just starting
+	t.IsRunning = true
+	t.IsBreak = false
+	t.Duration = time.Duration(t.FocusTime) // time.Duration(t.FocusTime) * time.Se
+	t.UpdateTicker = time.NewTicker(time.Duration((0.01/t.Pace)*3600) * time.Second)
+
 	if t.StartTime == "" {
 		t.StartTime = time.Now().String()
-		t.StartTimestamp = time.Now()
-		fmt.Println("TImer FocusTime", int(t.FocusTime))
-		t.Duration = time.Duration(t.FocusTime) * time.Second
-		fmt.Println("Timer Duration", t.Duration, t.Duration)
-		t.UpdateTicker = time.NewTicker(time.Duration((0.01/t.Pace)*3600) * time.Second)
 
-	} else {
-		t.UpdateTicker.Reset(time.Duration((0.01/t.Pace)*3600) * time.Second)
 	}
 	//After first param 0 , run 2nd param
 	//var is a *timer to stop /cancel func from happening
 	t.CountdownTimer = time.AfterFunc(time.Duration(t.FocusTime)*time.Second, func() {
 		//SetBreak Resets Timer for Break && sets IsBreak bool
+		r.update_protocol()
 		t.SetBreak(r)
 	})
+	t.TimerMux.Unlock()
 
 	go func() {
 		for {
@@ -61,9 +58,43 @@ func (t *Timer) BeginFocusTime(r *Room) {
 
 }
 
+func (t *Timer) ExtraSet(r *Room) {
+	//lock Timer
+	t.TimerMux.Lock()
+	defer t.TimerMux.Unlock()
+	//increase set by 1
+	t.Sets++
+	//set long Break Time
+	t.CountdownTimer = time.AfterFunc(time.Duration(t.LongBreakTime)*time.Second, func() {
+		t.BeginFocusTime(r)
+	})
+}
+
+func (t *Timer) ExtraSession(r *Room) {
+	//lock Timer
+	t.TimerMux.Lock()
+	defer t.TimerMux.Unlock()
+	//increase set by 1
+	t.Sets += 3
+	//set long Break Time
+	t.CountdownTimer = time.AfterFunc(time.Duration(t.LongBreakTime)*time.Second, func() {
+		t.BeginFocusTime(r)
+	})
+}
+
+func (t *Timer) SkipBreak(r *Room) {
+
+	t.TimerMux.Lock()
+	defer t.TimerMux.Unlock()
+	t.CountdownTimer = time.AfterFunc(time.Duration(t.FocusTime)*time.Second, func() {
+		t.BeginFocusTime(r)
+	})
+}
+
 func (t *Timer) SetBreak(r *Room) error {
 	//stop updating
-	t.UpdateTicker.Stop()
+	t.TimerMux.Lock()
+	defer t.TimerMux.Unlock()
 
 	//set isBreak to True
 	t.IsBreak = true
@@ -71,7 +102,7 @@ func (t *Timer) SetBreak(r *Room) error {
 	t.CompletedSets++
 	//reset time tracking
 	t.StartTimestamp = time.Now()
-	t.Duration = time.Duration(t.ShortBreakTime) * time.Second
+	t.Duration = time.Duration(t.ShortBreakTime)
 	//get snapshot of all hikers data
 	r.HikersMux.RLock()
 	hikersSnapshot := make(map[string]*Client, len(r.Hikers))
@@ -105,6 +136,7 @@ func (t *Timer) SetBreak(r *Room) error {
 	}
 	//Timers Break Timer begins, will call BeginFocusTime once breakTime is Reached
 	t.CountdownTimer = time.AfterFunc(time.Duration(t.ShortBreakTime)*time.Second, func() {
+		r.update_protocol()
 		t.BeginFocusTime(r)
 	})
 
@@ -124,14 +156,17 @@ func (t *Timer) SetBreak(r *Room) error {
 func (t *Timer) RemainingTime() time.Duration {
 	t.TimerMux.RLock()
 	defer t.TimerMux.RUnlock()
-
-	intString := strconv.Itoa(int(t.Duration))
-	remaining, _ := time.ParseDuration(intString + "s")
-
+	fmt.Println("in Remaining Time, Timer.Duration is:", t.Duration)
+	//seconds
 	elapsed := time.Since(t.StartTimestamp)
-	remaining = remaining - elapsed
+
+	fmt.Println("in Remaining Time, elapsed.seconds() is:", elapsed.Seconds())
+
+	remaining := t.Duration*time.Second - elapsed
+
+	fmt.Println("Final Remaining Time", remaining)
 	if remaining < 0 {
 		remaining = 0
 	}
-	return remaining
+	return time.Duration(remaining)
 }

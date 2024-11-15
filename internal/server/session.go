@@ -1,22 +1,31 @@
 package server
 
+import "sync"
+
 type Session struct {
-	Name         string  `json:"name"`
-	Distance     float64 `json:"distance"`
-	Level        uint8   `json:"level"`
-	highestLevel uint8   `json:"-"`
-	Strikes      uint8   `json:"strikes"`
-	TokensEarned uint8   `json:"tokensEarned"`
-	BonusTokens  uint8   `json:"bonusTokens"`
+	SessionMux            sync.RWMutex `json:"-"`
+	Name                  string       `json:"name"`
+	Distance              float64      `json:"distance"`
+	Level                 uint8        `json:"level"`
+	HighestCompletedLevel uint8        `json:"highestCompletedLevel"`
+	Strikes               uint8        `json:"strikes"`
+	TokensEarned          uint8        `json:"tokensEarned"`
+	BonusTokens           uint8        `json:"bonusTokens"`
 }
 
 func (s *Session) Reset() {
+	s.SessionMux.Lock()
+	defer s.SessionMux.Unlock()
 	s.Distance = 0.0
 	s.Level = 0
-	s.highestLevel = 0
+	s.HighestCompletedLevel = 0
 	s.Strikes = 0
 	s.TokensEarned = 0
 	s.BonusTokens = 0
+}
+
+func (s *Session) caulculateTokensEarned(r *Room) int {
+	return 0
 }
 
 func (s *Session) calculateStrikePenalty() float64 {

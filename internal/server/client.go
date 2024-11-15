@@ -2,11 +2,13 @@ package server
 
 import (
 	"fmt"
+	"sync"
 
 	ws "github.com/gorilla/websocket"
 )
 
 type Client struct {
+	mux             sync.RWMutex      `json:"-"`
 	Conn            *ws.Conn          `json:"-"`
 	Id              string            `json:"id"`
 	IsHost          bool              `json:"isHost"`
@@ -17,6 +19,9 @@ type Client struct {
 	Strikes         uint8             `json:"strikes"`
 	MsgCh           chan ServerPacket `json:"-"`
 	droppedMessages uint8             `json:"-"`
+	TokensEarned    uint8             `json:"tokensEarned"`
+	BonusTokens     uint8             `json:"bonusTokens"`
+	RoomId          string            `json:"roomId"`
 }
 
 type ClientPacket struct {
@@ -26,10 +31,6 @@ type ClientPacket struct {
 }
 
 func (c *Client) writePump() {
-	defer func() {
-		c.Conn.Close()
-		close(c.MsgCh)
-	}()
 
 	for {
 		select {

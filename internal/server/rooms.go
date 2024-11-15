@@ -3,7 +3,6 @@ package server
 import (
 	"fmt"
 	"log"
-	"math"
 	"sync"
 	"time"
 )
@@ -20,10 +19,8 @@ type Room struct {
 	Hikers       map[string]*Client
 	HikersMux    sync.RWMutex
 	Session      *Session
-	SessionMux   sync.RWMutex
 	IncomingMsgs chan *ClientPacket
 	Timer        *Timer
-	TimerMux     sync.RWMutex
 	Host         string
 }
 
@@ -34,7 +31,8 @@ func (r *Room) handleRoomMessages() {
 			return // Exit the goroutine if the channel is closed
 		}
 		// Process incoming messages for the room here
-		fmt.Printf("Processing message for room %s\n", r.Id)
+		fmt.Printf("Processing  %s message for room %s\n", msg.Header.Protocol, r.Id)
+		fmt.Printf("Msgs waiting in rooms msg channel: %v\n", len(r.IncomingMsgs))
 
 		switch msg.Header.Protocol {
 		case "create":
@@ -97,6 +95,11 @@ func (r *Room) handleRoomMessages() {
 			if err != nil {
 				fmt.Errorf("error in resume_protocol: %v", err)
 			}
+		case "leave":
+			err := r.leave_protocol(msg.Hiker)
+			if err != nil {
+				fmt.Printf("Error in leave protocol: %v", err)
+			}
 		case "end":
 			err := r.end_protocol(msg.Hiker)
 			if err != nil {
@@ -105,6 +108,28 @@ func (r *Room) handleRoomMessages() {
 			err = r.responseFactory("end", msg.Hiker)
 			if err != nil {
 				fmt.Errorf("error in end_protocol: %v", err)
+			}
+		case "extraSet":
+
+			err := r.extraSet_protocol()
+			if err != nil {
+				fmt.Printf("Error in extraSet protocol: %v", err)
+			}
+
+			err = r.responseFactory("extraSet", msg.Hiker)
+			if err != nil {
+				fmt.Errorf("error in extraet_protocol: %v", err)
+			}
+		case "extraSession":
+
+			err := r.extraSession_protocol()
+			if err != nil {
+				fmt.Printf("Error in extraSession protocol: %v", err)
+			}
+
+			err = r.responseFactory("extraSession", msg.Hiker)
+			if err != nil {
+				fmt.Errorf("error in extraSession_protocol: %v", err)
 			}
 		default:
 			fmt.Printf("Received unknown protocol %s in room %s\n", msg.Header.Protocol, r.Id)
@@ -117,21 +142,29 @@ func (r *Room) handleRoomMessages() {
 func (r *Room) sendMessage(h *Client, packet ServerPacket) {
 	// Send message to hikers msg channel
 	h.MsgCh <- packet
-	return
 
 }
 
 // Takes a &Message{protocol: "", Message: interface{}}
 func (r *Room) responseFactory(protocol string, hiker *Client) error {
+
+	// Make a snapshot of the hikers map
+	r.HikersMux.RLock()
+	hikersSnapshot := make(map[string]*Client, len(r.Hikers))
+	for k, v := range r.Hikers {
+		hikersSnapshot[k] = v
+	}
+	r.HikersMux.RUnlock()
+
+	r.Session.SessionMux.RLock()
+	sessionSnapshot := r.Session
+	r.Session.SessionMux.RUnlock()
+
+	r.Timer.TimerMux.RLock()
+	timerSnapshot := r.Timer
+	r.Timer.TimerMux.RUnlock()
 	switch protocol {
 	case "create":
-		// Make a snapshot of the hikers map
-		r.HikersMux.RLock()
-		hikersSnapshot := make(map[string]*Client, len(r.Hikers))
-		for k, v := range r.Hikers {
-			hikersSnapshot[k] = v
-		}
-		r.HikersMux.RUnlock()
 		directMessage := map[string]interface{}{
 			"status":  "success",
 			"message": "",
@@ -145,26 +178,18 @@ func (r *Room) responseFactory(protocol string, hiker *Client) error {
 		return nil
 
 	case "join":
-		// Make a snapshot of the hikers map
-		r.HikersMux.RLock()
-		hikersSnapshot := make(map[string]*Client, len(r.Hikers))
-		for k, v := range r.Hikers {
-			hikersSnapshot[k] = v
-		}
-		r.HikersMux.RUnlock()
-
 		// Direct message to the joining hiker
 		directMessage := map[string]interface{}{
-			"type":          "direct",
-			"status":        "success",
-			"message":       "",
-			"hikers":        hikersSnapshot,
-			"sessionConfig": r.Session,
-			"timerConfig":   r.Timer,
+			"type":    "direct",
+			"status":  "success",
+			"message": "",
+			"hikers":  hikersSnapshot,
+			"session": sessionSnapshot,
+			"timer":   timerSnapshot,
 		}
 		packet, err := r.packMessage("join", directMessage, hiker)
 		if err != nil {
-			fmt.Printf("Error in responseFactory: %v", err)
+			return fmt.Errorf("Error in responseFactory: %v", err)
 		}
 		r.sendMessage(hiker, packet)
 
@@ -174,18 +199,9 @@ func (r *Room) responseFactory(protocol string, hiker *Client) error {
 			"message": hiker.Username + " has joined the room",
 			"hikers":  hikersSnapshot,
 		}
-		r.broadcastExcept("join", broadcastMessage, hiker)
-		return nil
+		return r.broadcastExcept("join", broadcastMessage, hiker)
 
 	case "kicked":
-		// Similar approach with snapshot for kicked case
-		r.HikersMux.RLock()
-		hikersSnapshot := make(map[string]*Client, len(r.Hikers))
-		for k, v := range r.Hikers {
-			hikersSnapshot[k] = v
-		}
-		r.HikersMux.RUnlock()
-
 		broadcastMessage := map[string]interface{}{
 			"type":    "broadcast",
 			"message": hiker.Username + " has been kicked from the room",
@@ -194,14 +210,6 @@ func (r *Room) responseFactory(protocol string, hiker *Client) error {
 		r.broadcast("kicked", broadcastMessage)
 
 	case "ready":
-		// Snapshot for ready message
-		r.HikersMux.RLock()
-		hikersSnapshot := make(map[string]*Client, len(r.Hikers))
-		for k, v := range r.Hikers {
-			hikersSnapshot[k] = v
-		}
-		r.HikersMux.RUnlock()
-
 		directMessage := map[string]interface{}{
 			"type":    "direct",
 			"status":  "success",
@@ -210,7 +218,7 @@ func (r *Room) responseFactory(protocol string, hiker *Client) error {
 		}
 		packet, err := r.packMessage("ready", directMessage, hiker)
 		if err != nil {
-			fmt.Printf("Error in responseFactory: %v", err)
+			return fmt.Errorf("Error in responseFactory: %v", err)
 		}
 		r.sendMessage(hiker, packet)
 
@@ -221,23 +229,18 @@ func (r *Room) responseFactory(protocol string, hiker *Client) error {
 		}
 		r.broadcastExcept("ready", broadcastMessage, hiker)
 	case "updateConfig":
-		// Snapshot for ready message
-		r.HikersMux.RLock()
-		hikersSnapshot := make(map[string]*Client, len(r.Hikers))
-		for k, v := range r.Hikers {
-			hikersSnapshot[k] = v
-		}
-		r.HikersMux.RUnlock()
 
 		directMessage := map[string]interface{}{
-			"type":    "direct",
-			"status":  "success",
-			"message": "Session Updated",
-			"hikers":  hikersSnapshot,
+			"type":          "direct",
+			"status":        "success",
+			"message":       "Session Updated",
+			"hikers":        hikersSnapshot,
+			"sessionConfig": sessionSnapshot,
+			"timerConfig":   timerSnapshot,
 		}
 		packet, err := r.packMessage("updateConfig", directMessage, hiker)
 		if err != nil {
-			fmt.Printf("Error in responseFactory: %v", err)
+			return fmt.Errorf("Error in responseFactory: %v", err)
 		}
 		r.sendMessage(hiker, packet)
 
@@ -245,80 +248,72 @@ func (r *Room) responseFactory(protocol string, hiker *Client) error {
 			"type":          "broadcast",
 			"message":       "Settings Updated",
 			"hikers":        hikersSnapshot,
-			"sessionConfig": r.Session,
-			"timerConfig":   r.Timer,
+			"sessionConfig": sessionSnapshot,
+			"timerConfig":   timerSnapshot,
 		}
 		fmt.Println("responding with r.timer: %v", r.Timer)
-		r.broadcastExcept("updateConfig", broadcastMessage, hiker)
+		return r.broadcastExcept("updateConfig", broadcastMessage, hiker)
 	case "start":
 		// Start broadcast message
-		r.broadcast("start", map[string]interface{}{
-			"session": r.Session,
-			"timer":   r.Timer,
+		err := r.broadcast("start", map[string]interface{}{
+			"session": sessionSnapshot,
+			"timer":   timerSnapshot,
 			"message": "Starting Session",
 		})
+		if err != nil {
+			return fmt.Errorf("Error in responseFactory: %v", err)
+		}
 
 	case "update":
 		//send New hikers, session and timer states to hikers
 
 		remainingTime := r.Timer.RemainingTime()
-		hikersSnapshot := make(map[string]*Client, len(r.Hikers))
-		r.HikersMux.RLock()
-		for k, v := range r.Hikers {
-			hikersSnapshot[k] = v
-		}
-		r.HikersMux.RUnlock()
-
-		currentLevel := uint8(math.Floor(r.Session.Distance + 1))
-		var milestoneMessage string
-
-		//set Session level based on SessionDistance
-		if currentLevel > r.Session.highestLevel {
-			r.Session.highestLevel = currentLevel
-			//reward for level milestone
-			milestoneMessage = fmt.Sprintf("Reached Level %v! Tokens Earned!", currentLevel)
-		}
 
 		message := map[string]interface{}{
 			"type":          "broadcast",
 			"hikers":        hikersSnapshot,
-			"timer":         r.Timer,
-			"session":       r.Session,
-			"message":       milestoneMessage,
+			"timer":         timerSnapshot,
+			"session":       sessionSnapshot,
 			"remainingTime": remainingTime.Seconds(), // Send remaining time in seconds
 		}
-		r.broadcast("update", message)
+		return r.broadcast("update", message)
 	case "pause":
+
 		// pause broadcast message
 		broadcastMessage := fmt.Sprintf("Hiker %s has paused", hiker.Username)
-		r.broadcastExcept("pause", map[string]interface{}{
-			"type":            "broadcast",
-			"pausedHikerId":   hiker.Id,
-			"message":         broadcastMessage,
-			"sessionDistance": r.Session.Distance,
-			"sessionStrikes":  r.Session.Strikes,
+		err := r.broadcastExcept("pause", map[string]interface{}{
+			"type":          "broadcast",
+			"pausedHikerId": hiker.Id,
+			"message":       broadcastMessage,
+			"session":       sessionSnapshot,
 		}, hiker)
+		if err != nil {
+			return fmt.Errorf("Error in responseFactory: %v", err)
+		}
 
 		directMessage := map[string]interface{}{
-			"type":            "direct",
-			"status":          "success",
-			"message":         "",
-			"sessionDistance": r.Session.Distance,
-			"sessionStrikes":  r.Session.Strikes,
+			"type":    "direct",
+			"status":  "success",
+			"message": "",
+			"session": sessionSnapshot,
 		}
 		packet, err := r.packMessage("pause", directMessage, hiker)
 		if err != nil {
 			fmt.Printf("Error in responseFactory: %v", err)
 		}
 		r.sendMessage(hiker, packet)
+		return nil
 
 	case "resume":
 		// resume message
 		message := fmt.Sprintf("Hiker %s has resumed", hiker.Username)
-		r.broadcastExcept("resume", map[string]interface{}{
-			"resumeHiker": hiker.Id,
-			"message":     message,
+		err := r.broadcastExcept("resume", map[string]interface{}{
+			"resumeHikerId": hiker.Id,
+			"message":       message,
 		}, hiker)
+		if err != nil {
+			return fmt.Errorf("Error in responseFactory: %v", err)
+		}
 
 		remainingTime := r.Timer.RemainingTime()
 		directMessage := map[string]interface{}{
@@ -332,27 +327,46 @@ func (r *Room) responseFactory(protocol string, hiker *Client) error {
 			fmt.Printf("Error in responseFactory: %v", err)
 		}
 		r.sendMessage(hiker, packet)
+		return nil
+	case "skipBreak":
+		// skip break message
+		broadcastMessage := map[string]interface{}{
+			"type":    "broadcast",
+			"message": "Skipping Break",
+		}
+		return r.broadcast("skipBreak", broadcastMessage)
 	case "end":
 		// end message
-		r.broadcast("end", map[string]interface{}{
+		return r.broadcast("end", map[string]interface{}{
 			"type":    "broadcast",
 			"message": "Session Ended",
 		})
+
+	case "extraSet":
+		broadcastMessage := map[string]interface{}{
+			"type":    "broadcast",
+			"message": "Added full set, More Rewards!",
+		}
+		return r.broadcast("extraSet", broadcastMessage)
+	case "extraSession":
+		broadcastMessage := map[string]interface{}{
+			"type":    "broadcast",
+			"message": "Added extra session, More Rewards!",
+		}
+		return r.broadcast("extraSession", broadcastMessage)
 	case "leave":
-		//Lock
-		r.HikersMux.Lock()
-		delete(r.Hikers, hiker.Id)
-		r.HikersMux.Unlock()
-		// Leave broadcast message
 		message := fmt.Sprintf("Hiker %s has left", hiker.Username)
-		r.broadcastExcept("leave", map[string]interface{}{
+		return r.broadcastExcept("leave", map[string]interface{}{
+			"type":    "broadcast",
 			"message": message,
+			"hikers":  hikersSnapshot,
 		}, hiker)
 	default:
 		return fmt.Errorf("unknown protocol: %s", protocol)
 	}
 
 	return nil
+
 }
 func (r *Room) broadcastExcept(protocol string, message map[string]interface{}, h *Client) error {
 	r.HikersMux.RLock() // Lock for reading
@@ -387,6 +401,7 @@ func (r *Room) broadcastExcept(protocol string, message map[string]interface{}, 
 }
 
 func (r *Room) broadcast(protocol string, message map[string]interface{}) error {
+
 	for _, hiker := range r.Hikers {
 		packet, err := r.packMessage(protocol, message, hiker)
 		if err != nil {
@@ -426,27 +441,84 @@ func (r *Room) warnOrRemoveHiker(hiker *Client) {
 	}
 }
 
-func (r *Room) AddHiker(h *Client) {
+func (r *Room) AddHiker(h *Client) error {
 
 	r.HikersMux.Lock()
 	defer r.HikersMux.Unlock()
+	fmt.Println("in AddHiker")
 	_, ok := r.Hikers[h.Id]
 	if !ok {
+		fmt.Println("setting hiker in room")
 		r.Hikers[h.Id] = h
+		fmt.Println("making hiker room Id")
+		h.RoomId = r.Id
 		fmt.Printf("Hiker %s added to room %s. Total hikers: %d\n", h.Username, r.Id, len(r.Hikers))
-
+		r.Timer.TimerMux.RLock()
+		defer r.Timer.TimerMux.RUnlock()
+		if r.Timer.IsRunning {
+			h.IsReady = true
+		}
+		return nil
 	} else {
-		fmt.Printf("Hiker %s already exists in room %s. Total hikers: %d\n", h.Username, r.Id, len(r.Hikers))
-		r.Hikers[h.Id] = h
+
+		return fmt.Errorf("Hiker %s already exists in room %s. Total hikers: %d\n", h.Username, r.Id, len(r.Hikers))
 	}
 
 }
 
-func (r *Room) kickHiker(h *Client) error {
-	close(h.MsgCh) //Close hikers msg channel
+func (r *Room) RemoveHiker(h *Client) string {
 	r.HikersMux.Lock()
+	defer r.HikersMux.Unlock()
+	delete(r.Hikers, h.Id)
+	fmt.Printf("Hiker %s removed from room %s. Total hikers: %d\n", h.Username, r.Id, len(r.Hikers))
+	if len(r.Hikers) == 0 {
+		close(r.IncomingMsgs)
+		return "close room"
+	} else {
+		r.setNewHost()
+		return "set new host"
+	}
+
+}
+
+func (r *Room) setNewHost() error {
+	var newHost *Client
+	for _, hiker := range r.Hikers {
+		newHost = hiker
+		hiker.IsHost = true
+		r.Host = hiker.Id
+		fmt.Printf("Hiker %s is the new host\n", newHost.Username)
+		break
+	}
+	hikersSnapshot := make(map[string]*Client, len(r.Hikers))
+	for k, v := range r.Hikers {
+		hikersSnapshot[k] = v
+	}
+
+	fmt.Printf("New Host is: %s\n", newHost.Username)
+	message := map[string]interface{}{
+		"type":    "broadcast",
+		"hikers":  hikersSnapshot,
+		"message": fmt.Sprintf("%s is the new host", newHost.Username),
+	}
+
+	return r.broadcast("newHost", message)
+
+}
+
+func (r *Room) kickHiker(h *Client) error {
+	close(h.MsgCh)         //Close hikers msg channel
 	delete(r.Hikers, h.Id) //Remove from room
-	r.HikersMux.Unlock()
+
+	if len(r.Hikers) == 0 {
+		close(r.IncomingMsgs)
+	} else {
+		err := r.setNewHost()
+		if err != nil {
+			return fmt.Errorf("error in kickHiker: %v\n", err)
+		}
+	}
+
 	err := r.responseFactory("kicked", h) //Broadcast kicked message
 	if err != nil {
 		return fmt.Errorf("error in kickHiker: %v\n", err)

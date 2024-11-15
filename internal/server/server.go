@@ -18,11 +18,10 @@ type ServerInterface interface {
 }
 
 type Server struct {
-	Addr      string
-	Rooms     map[string]*Room
-	RoomMu    sync.Mutex
-	Clients   map[*ws.Conn]bool
-	ClientsMu sync.Mutex
+	mux     sync.RWMutex
+	Addr    string
+	Rooms   map[string]*Room
+	Clients map[*ws.Conn]bool
 }
 
 type Header struct {
@@ -65,18 +64,27 @@ func (s *Server) createWSConn(w http.ResponseWriter, r *http.Request) (*ws.Conn,
 
 func (s *Server) addClient(c *ws.Conn) {
 
-	s.ClientsMu.Lock()
-	defer s.ClientsMu.Unlock()
+	s.mux.Lock()
+	defer s.mux.Unlock()
 	s.Clients[c] = true
 }
 
 func (s *Server) removeClient(c *Client) {
 	//close(c.MsgCh)
-	fmt.Println("Client Disconnected")
+	close(c.MsgCh)
+	fmt.Println("Removing from room")
+
+	str := s.Rooms[c.RoomId].RemoveHiker(c)
+	if str == "close room" {
+		delete(s.Rooms, c.RoomId)
+		fmt.Println("Room closed")
+	}
+
 	c.Conn.Close()
-	s.ClientsMu.Lock()
-	defer s.ClientsMu.Unlock()
+	s.mux.Lock()
+	defer s.mux.Unlock()
 	delete(s.Clients, c.Conn)
+	fmt.Println("Client Disconnected")
 }
 
 func (s *Server) handleNewConnection(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +101,7 @@ func (s *Server) handleNewConnection(w http.ResponseWriter, r *http.Request) {
 	// Create and add new client
 	client := &Client{
 		Conn:  wsConn,
-		MsgCh: make(chan ServerPacket, 1024), // Buffered channel for outgoing messages
+		MsgCh: make(chan ServerPacket, 2048), // Buffered channel for outgoing messages
 	}
 	s.addClient(wsConn)
 
@@ -126,7 +134,7 @@ func (s *Server) readLoop(c *Client) {
 			newRoom := &Room{
 				Id:      uuid.New().String(),
 				Hikers:  make(map[string]*Client, 1024),
-				Session: &Session{Level: 1, highestLevel: 1},
+				Session: &Session{Level: 1, HighestCompletedLevel: 0},
 				Timer: &Timer{
 					FocusTime:      1500,
 					ShortBreakTime: 300,
@@ -135,13 +143,13 @@ func (s *Server) readLoop(c *Client) {
 					CompletedSets:  0,
 					Pace:           2.0,
 				},
-				IncomingMsgs: make(chan *ClientPacket, 100),
+				IncomingMsgs: make(chan *ClientPacket, 2048),
 				Host:         c.Id,
 			}
 			//add room to Servers rooms
-			s.RoomMu.Lock()
+			s.mux.Lock()
 			s.Rooms[newRoom.Id] = newRoom
-			s.RoomMu.Unlock()
+			s.mux.Unlock()
 
 			//start new thread to handle new rooms messages
 			go newRoom.handleRoomMessages()
@@ -218,6 +226,7 @@ func (s *Server) readLoop(c *Client) {
 				}
 			}
 			//if room exists
+			fmt.Println("Room Found! Sending Message to room: ", clientPacket.Header.RoomId)
 			roomRef.IncomingMsgs <- clientPacket
 
 		}
