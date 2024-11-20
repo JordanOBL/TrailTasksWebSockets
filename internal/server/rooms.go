@@ -306,16 +306,18 @@ func (r *Room) responseFactory(protocol string, hiker *Client) error {
 
 	case "resume":
 		// resume message
+
+		remainingTime := r.Timer.RemainingTime()
 		message := fmt.Sprintf("Hiker %s has resumed", hiker.Username)
 		err := r.broadcastExcept("resume", map[string]interface{}{
 			"resumeHikerId": hiker.Id,
+			"remainingTime": remainingTime.Seconds(),
 			"message":       message,
 		}, hiker)
 		if err != nil {
 			return fmt.Errorf("Error in responseFactory: %v", err)
 		}
 
-		remainingTime := r.Timer.RemainingTime()
 		directMessage := map[string]interface{}{
 			"type":          "direct",
 			"status":        "success",
