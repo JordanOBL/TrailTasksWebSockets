@@ -23,6 +23,8 @@ type Timer struct {
 	AutoContinue   bool          `json:"autoContinue"`
 	CountdownTimer *time.Timer   `json:"-"`
 	UpdateTicker   *time.Ticker  `json:"-"`
+	quit           chan struct{} `json:"-"`
+	wg             sync.WaitGroup
 }
 
 func (t *Timer) BeginFocusTime(r *Room) {
@@ -33,6 +35,7 @@ func (t *Timer) BeginFocusTime(r *Room) {
 	t.IsBreak = false
 	t.Duration = time.Duration(t.FocusTime) // time.Duration(t.FocusTime) * time.Se
 	t.UpdateTicker = time.NewTicker(time.Duration((0.01/t.Pace)*3600) * time.Second)
+	t.quit = make(chan struct{})
 
 	if t.StartTime == "" {
 		t.StartTime = time.Now().String()
@@ -47,11 +50,17 @@ func (t *Timer) BeginFocusTime(r *Room) {
 	})
 	t.TimerMux.Unlock()
 
+	t.wg.Add(1)
+	ticker := t.UpdateTicker
+	quit := t.quit
 	go func() {
+		defer t.wg.Done()
 		for {
 			select {
-			case <-t.UpdateTicker.C:
+			case <-ticker.C:
 				r.update_protocol() // Periodically updates session and unpaused user distance
+			case <-quit:
+				return
 			}
 		}
 	}()
@@ -169,4 +178,18 @@ func (t *Timer) RemainingTime() time.Duration {
 		remaining = 0
 	}
 	return time.Duration(remaining)
+}
+
+// StopTicker stops the UpdateTicker and signals the update goroutine to exit.
+func (t *Timer) StopTicker() {
+	t.TimerMux.Lock()
+	if t.UpdateTicker != nil {
+		t.UpdateTicker.Stop()
+	}
+	if t.quit != nil {
+		close(t.quit)
+		t.quit = nil
+	}
+	t.TimerMux.Unlock()
+	t.wg.Wait()
 }
