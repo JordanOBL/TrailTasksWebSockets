@@ -67,7 +67,7 @@ func (r *Room) handleRoomMessages() {
 			// send ready responses
 			err = r.responseFactory("updateConfig", msg.Hiker)
 			if err != nil {
-				fmt.Errorf("error in ready_protocol: %v", err)
+				log.Printf("error in ready_protocol: %v", err)
 
 			}
 		case "start":
@@ -75,7 +75,7 @@ func (r *Room) handleRoomMessages() {
 
 			err := r.responseFactory("start", msg.Hiker)
 			if err != nil {
-				fmt.Errorf("error in start_protocol: %v", err)
+				log.Printf("error in start_protocol: %v", err)
 			}
 		case "pause":
 			err := r.pauseHiker_protocol(msg.Hiker)
@@ -84,7 +84,7 @@ func (r *Room) handleRoomMessages() {
 			}
 			err = r.responseFactory("pause", msg.Hiker)
 			if err != nil {
-				fmt.Errorf("error in pause_protocol: %v", err)
+				log.Printf("error in pause_protocol: %v", err)
 			}
 		case "resume":
 			err := r.resumeHiker_protocol(msg.Hiker)
@@ -93,7 +93,7 @@ func (r *Room) handleRoomMessages() {
 			}
 			err = r.responseFactory("resume", msg.Hiker)
 			if err != nil {
-				fmt.Errorf("error in resume_protocol: %v", err)
+				log.Printf("error in resume_protocol: %v", err)
 			}
 		case "leave":
 			err := r.leave_protocol(msg.Hiker)
@@ -107,7 +107,7 @@ func (r *Room) handleRoomMessages() {
 			}
 			err = r.responseFactory("end", msg.Hiker)
 			if err != nil {
-				fmt.Errorf("error in end_protocol: %v", err)
+				log.Printf("error in end_protocol: %v", err)
 			}
 		case "extraSet":
 
@@ -118,7 +118,7 @@ func (r *Room) handleRoomMessages() {
 
 			err = r.responseFactory("extraSet", msg.Hiker)
 			if err != nil {
-				fmt.Errorf("error in extraet_protocol: %v", err)
+				log.Printf("error in extraet_protocol: %v", err)
 			}
 		case "extraSession":
 
@@ -129,7 +129,7 @@ func (r *Room) handleRoomMessages() {
 
 			err = r.responseFactory("extraSession", msg.Hiker)
 			if err != nil {
-				fmt.Errorf("error in extraSession_protocol: %v", err)
+				log.Printf("error in extraSession_protocol: %v", err)
 			}
 		default:
 			fmt.Printf("Received unknown protocol %s in room %s\n", msg.Header.Protocol, r.Id)
@@ -251,7 +251,7 @@ func (r *Room) responseFactory(protocol string, hiker *Client) error {
 			"sessionConfig": sessionSnapshot,
 			"timerConfig":   timerSnapshot,
 		}
-		fmt.Println("responding with r.timer: %v", r.Timer)
+		fmt.Printf("responding with r.timer: %v\n", r.Timer)
 		return r.broadcastExcept("updateConfig", broadcastMessage, hiker)
 	case "start":
 		// Start broadcast message
