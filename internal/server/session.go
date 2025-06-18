@@ -1,6 +1,9 @@
 package server
 
-import "sync"
+import (
+	"math"
+	"sync"
+)
 
 type Session struct {
 	SessionMux            sync.RWMutex `json:"-"`
@@ -24,8 +27,27 @@ func (s *Session) Reset() {
 	s.BonusTokens = 0
 }
 
-func (s *Session) caulculateTokensEarned(r *Room) int {
-	return 0
+func (s *Session) calculateTokensEarned(r *Room) int {
+	s.SessionMux.Lock()
+	defer s.SessionMux.Unlock()
+
+	// Base reward: 1 token for every half mile completed
+	baseTokens := int(math.Floor(s.Distance / 0.5))
+
+	// Add any bonus tokens earned from events or extras
+	totalTokens := baseTokens + int(s.BonusTokens)
+
+	// Apply strike penalty to reduce total tokens
+	penalty := int(float64(totalTokens) * s.calculateStrikePenalty())
+	totalTokens -= penalty
+
+	if totalTokens < 0 {
+		totalTokens = 0
+	}
+
+	s.TokensEarned = uint8(totalTokens)
+
+	return totalTokens
 }
 
 func (s *Session) calculateStrikePenalty() float64 {
