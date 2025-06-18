@@ -182,7 +182,6 @@ func (s *Server) readLoop(c *Client) {
 
 			// Retrieve the room by RoomId
 			roomRef, ok := s.Rooms[clientPacket.Header.RoomId]
-			fmt.Println("Amount of hikers in room:", len(roomRef.Hikers))
 			if !ok {
 				// Room does not exist, send error message to client
 				errMsg := map[string]interface{}{"message": "Room ID Does Not Exist"}
@@ -201,8 +200,8 @@ func (s *Server) readLoop(c *Client) {
 					s.removeClient(c)
 				}
 			} else {
-				// Room exists, add client to room
-
+				// Room exists, log room size and add client to room
+				fmt.Println("Amount of hikers in room:", len(roomRef.Hikers))
 				roomRef.IncomingMsgs <- clientPacket
 			}
 		default:
