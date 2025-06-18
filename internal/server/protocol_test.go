@@ -114,4 +114,30 @@ func TestProtocol(t *testing.T) {
 		}
 
 	})
+
+	t.Run("Invalid Room ID", func(t *testing.T) {
+		invalidClient, resp, err := websocket.DefaultDialer.Dial(wsUrl.String(), nil)
+		if err != nil {
+			t.Fatalf("Failed to connect to server: %v", err)
+		}
+		defer invalidClient.Close()
+		fmt.Println("Connected to server:", resp.Status)
+
+		testMessage := map[string]map[string]interface{}{"header": {"protocol": "join", "roomId": "badroom", "userId": "3"}, "message": {"username": "badUser"}}
+		err = invalidClient.WriteJSON(testMessage)
+		if err != nil {
+			t.Fatalf("Failed to write message: %v", err)
+		}
+
+		response := &ServerPacket{}
+		err = invalidClient.ReadJSON(response)
+		if err != nil {
+			t.Fatalf("Failed to read message from server: %v", err)
+		}
+
+		expectedMessage := "Room ID Does Not Exist"
+		if response.Header.Protocol != "Error" || response.Response["message"] != expectedMessage {
+			t.Errorf("Expected protocol Error with message %s, got %v - %v", expectedMessage, response.Header.Protocol, response.Response["message"])
+		}
+	})
 }
