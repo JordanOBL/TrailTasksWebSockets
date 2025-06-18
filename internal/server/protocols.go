@@ -127,7 +127,7 @@ func (r *Room) end_protocol(h *Client) error {
 	defer r.Session.SessionMux.Unlock()
 	r.HikersMux.Lock()
 	defer r.HikersMux.Unlock()
-	r.Timer.UpdateTicker.Stop()
+	r.Timer.StopTicker()
 	r.Timer.CountdownTimer.Stop()
 	r.Timer.IsRunning = false
 	r.Timer.IsBreak = false
