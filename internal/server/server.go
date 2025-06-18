@@ -74,13 +74,14 @@ func (s *Server) removeClient(c *Client) {
 	close(c.MsgCh)
 	fmt.Println("Removing from room")
 	if c.RoomId != "" {
-
-		str := s.Rooms[c.RoomId].RemoveHiker(c)
-		if str == "close room" {
-			delete(s.Rooms, c.RoomId)
-			fmt.Println("Room closed")
+		room, ok := s.Rooms[c.RoomId]
+		if ok && room != nil {
+			str := room.RemoveHiker(c)
+			if str == "close room" {
+				delete(s.Rooms, c.RoomId)
+				fmt.Println("Room closed")
+			}
 		}
-
 	}
 
 	c.Conn.Close()
